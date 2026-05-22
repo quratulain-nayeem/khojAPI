@@ -5,6 +5,7 @@ from datetime import datetime
 class AnalyzeRequest(BaseModel):
     city: str
     category: str
+    locality: str
 
 class JobResponse(BaseModel):
     job_id: str

@@ -52,10 +52,16 @@ def run_analytics(businesses: list[dict]) -> dict:
     avg_rating = round(sum(ratings) / len(ratings), 2) if ratings else 0.0
 
     for b in businesses:
-        complaints = b.get("top_complaints", "")
-        if isinstance(complaints, list):
-            complaints = " ".join(complaints)
-        b["sentiment_score"] = score_sentiment(complaints)
+        reviews = b.get("reviews", [])
+        if isinstance(reviews, list):
+            complaints = b.get("top_complaints", [])
+            if isinstance(complaints, str):
+                import json
+                complaints = json.loads(complaints)
+            review_text = " ".join(complaints) if complaints else " ".join(reviews)
+        else:
+            review_text = ""
+        b["sentiment_score"] = score_sentiment(review_text)
 
     return {
         "total_businesses": len(businesses),

@@ -13,10 +13,10 @@ import json
 
 router = APIRouter()
 
-async def run_pipeline(job_id: str, city: str, category: str, db: Session):
+async def run_pipeline(job_id: str, city: str, category: str, locality: str, db: Session):
     try:
         update_job_status(job_id, "processing", db)
-        raw = crawl(city, category)
+        raw = crawl(city, category, locality)
         businesses = extract_all(raw)
         analytics = run_analytics(businesses)
         for b in businesses:
@@ -38,13 +38,14 @@ async def run_pipeline(job_id: str, city: str, category: str, db: Session):
         db.commit()
         update_job_status(job_id, "complete", db)
     except Exception as e:
+        print(f"PIPELINE ERROR: {e}")
         update_job_status(job_id, "failed", db)
 
 @router.post("/analyze", response_model=JobResponse)
 async def analyze(request: AnalyzeRequest, db: Session = Depends(get_db)):
     job_id = create_job(request.city, request.category, db)
     job = get_job(job_id, db)
-    asyncio.create_task(run_pipeline(job_id, request.city, request.category, db))
+    asyncio.create_task(run_pipeline(job_id, request.city, request.category, request.locality, db))
     return JobResponse(
         job_id=job_id,
         status=job.status,
