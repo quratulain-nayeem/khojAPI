@@ -1,0 +1,12 @@
+fastapi==0.99.1
+uvicorn
+sqlalchemy
+pydantic==1.10.24
+python-dotenv
+requests
+beautifulsoup4
+groq
+vaderSentiment
+geopy
+httpx
+apscheduler
