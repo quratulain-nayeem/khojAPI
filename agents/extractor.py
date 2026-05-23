@@ -29,19 +29,29 @@ Return a JSON object with these exact keys:
 
 def extract_business(raw: dict) -> dict:
     raw_str = json.dumps(raw)
-    response = client.chat.completions.create(
-        model="llama-3.3-70b-versatile",
-        temperature=0,
-        messages=[
-            {"role": "system", "content": SYSTEM_PROMPT},
-            {"role": "user", "content": USER_PROMPT.format(raw_business=raw_str)},
-        ],
-    )
     try:
+        response = client.chat.completions.create(
+            model="llama-3.3-70b-versatile",
+            temperature=0,
+            messages=[
+                {"role": "system", "content": SYSTEM_PROMPT},
+                {"role": "user", "content": USER_PROMPT.format(raw_business=raw_str)},
+            ],
+        )
         cleaned = response.choices[0].message.content.strip()
         return json.loads(cleaned)
-    except Exception:
-        return raw
+    except Exception as exc:
+        print(f"EXTRACTOR FALLBACK: {exc}")
+        return {
+            "name": raw.get("name"),
+            "rating": raw.get("rating"),
+            "review_count": raw.get("review_count"),
+            "price_range": raw.get("price_range"),
+            "phone": raw.get("phone"),
+            "address": raw.get("address"),
+            "top_complaints": [],
+            "tags": [],
+        }
 
 def extract_all(raw_businesses: list[dict]) -> list[dict]:
     extracted = []
