@@ -18,7 +18,12 @@ async def run_pipeline(job_id: str, city: str, category: str, locality: str):
     try:
         update_job_status(job_id, "processing", db)
         raw = crawl(city, category, locality)
+        if raw:
+            print(f"SAMPLE REVIEWS COUNT: {len(raw[0].get('reviews', []))}")
         businesses = extract_all(raw)
+        if businesses:
+            print(f"SAMPLE COMPLAINTS: {businesses[0].get('top_complaints')}")
+            print(f"SAMPLE PRICE RANGE: {businesses[0].get('price_range')}")
         analytics = run_analytics(businesses)
         for b in businesses:
             business = Business(
@@ -72,6 +77,8 @@ async def report(job_id: str, db: Session = Depends(get_db)):
     if job.status != "complete":
         raise HTTPException(status_code=400, detail=f"Job is {job.status}, not complete yet")
     businesses = db.query(Business).filter(Business.job_id == job_id).all()
+    raw_businesses = [b.__dict__ for b in businesses]
+    analytics = run_analytics(raw_businesses)
     business_list = [
         BusinessOut(
             id=b.id,
@@ -84,10 +91,8 @@ async def report(job_id: str, db: Session = Depends(get_db)):
             top_complaints=b.top_complaints,
             sentiment_score=b.sentiment_score,
             source=b.source
-        ) for b in businesses
+        ) for index, b in enumerate(businesses)
     ]
-    raw_businesses = [b.__dict__ for b in businesses]
-    analytics = run_analytics(raw_businesses)
     return ReportResponse(
         job_id=job_id,
         city=job.city,

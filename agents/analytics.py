@@ -10,17 +10,12 @@ def score_sentiment(text: str) -> float:
     return analyzer.polarity_scores(text)["compound"]
 
 def get_price_band(businesses: list[dict]) -> str:
-    bands = [b.get("price_range") for b in businesses if b.get("price_range")]
-    if not bands:
-        return "unknown"
-    count = Counter(bands)
-    most_common = count.most_common()
-    all_bands = {"budget", "mid-range", "premium"}
-    present = set(count.keys())
-    missing = all_bands - present
-    if missing:
-        return missing.pop()
-    return f"all price bands covered, most common: {most_common[0][0]}"
+    tier_counts = {"budget": 0, "mid-range": 0, "premium": 0}
+    for b in businesses:
+        tier = str(b.get("price_range", "")).lower()
+        if tier in tier_counts:
+            tier_counts[tier] += 1
+    return min(tier_counts, key=tier_counts.get)
 
 def get_competition_density(total: int) -> str:
     if total < 5:

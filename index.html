@@ -53,12 +53,13 @@
       background: var(--dark-green);
       border-radius: 50%;
       opacity: 0;
-      transition: opacity 0.9s ease, transform 0.9s ease;
-      transform: translateX(50px) scale(0.96);
+      filter: blur(1px);
+      transition: opacity 1.2s ease, transform 1.2s ease;
+      transform: translateX(90px) scale(0.96);
     }
 
     body.intro-complete::before {
-      opacity: 1;
+      opacity: 0.28;
       transform: translateX(0) scale(1);
     }
 
@@ -110,11 +111,15 @@
       transform: none;
       transform-origin: left center;
       pointer-events: none;
-      transition: opacity 0.25s ease;
+      transition: opacity 0.65s ease;
     }
 
     body.intro-complete .brand {
       opacity: 1;
+    }
+
+    body.intro-complete.nav-faded .brand {
+      opacity: 0;
     }
 
     .brand-icon {
@@ -148,12 +153,18 @@
       gap: 18px;
       opacity: 0;
       transform: translateY(-6px);
-      transition: opacity 0.35s ease, transform 0.35s ease;
+      transition: opacity 0.65s ease, transform 0.65s ease;
     }
 
     body.intro-complete .nav-links {
       opacity: 1;
       transform: translateY(0);
+    }
+
+    body.intro-complete.nav-faded .nav-links {
+      opacity: 0;
+      transform: translateY(-8px);
+      pointer-events: none;
     }
 
     .nav-links a {
@@ -566,12 +577,33 @@
     }
 
     .complaints li {
+      width: 100%;
+    }
+
+    .complaint-toggle {
+      width: 100%;
       padding: 5px 8px;
       color: #685d3f;
       background: rgba(186, 192, 149, 0.38);
+      border: 0;
       border-radius: 6px;
+      display: block;
       font-size: 0.8rem;
       font-weight: 700;
+      line-height: 1.35;
+      text-align: left;
+      cursor: pointer;
+      max-height: 3.45em;
+      overflow: hidden;
+      transition: background 0.2s ease, max-height 0.25s ease;
+    }
+
+    .complaint-toggle:hover {
+      background: rgba(186, 192, 149, 0.56);
+    }
+
+    .complaint-toggle.is-expanded {
+      max-height: 18rem;
     }
 
     .skeleton-card {
@@ -876,7 +908,7 @@
             <p class="metric-value">--</p>
           </div>
           <div class="metric-box">
-            <p class="metric-label">Market opportunity</p>
+            <p class="metric-label">Best entry point</p>
             <p class="metric-value">--</p>
           </div>
         </div>
@@ -963,7 +995,7 @@
   </div>
 
   <script>
-const API_BASE = "https://quratulainnnnn-khojapi.hf.space";
+const API_BASE = window.location.protocol === "file:" ? "http://127.0.0.1:8000" : window.location.origin;
 
 // --- intro animation code (keep everything you have) ---
 const introLogo = document.querySelector(".intro-logo");
@@ -1100,6 +1132,14 @@ const cardTrack = document.querySelector(".card-track");
 const skeletonCard = document.querySelector(".skeleton-card");
 const opportunityBanner = document.querySelector(".opportunity");
 const metricValues = document.querySelectorAll(".metric-value");
+let lastScrollY = window.scrollY;
+
+window.addEventListener("scroll", () => {
+  const currentScrollY = window.scrollY;
+  const scrollingDown = currentScrollY > lastScrollY;
+  document.body.classList.toggle("nav-faded", scrollingDown && currentScrollY > 90);
+  lastScrollY = currentScrollY;
+}, { passive: true });
 
 form.addEventListener("submit", async (event) => {
   event.preventDefault();
@@ -1175,21 +1215,21 @@ function renderReport(report) {
   metricValues[0].textContent = analytics.total_businesses;
   metricValues[1].textContent = analytics.avg_rating;
   metricValues[2].textContent = analytics.competition_density;
-  metricValues[3].textContent = analytics.underserved_price_band;
+  metricValues[3].textContent = analytics.underserved_price_band 
+    ? `Enter at ${analytics.underserved_price_band}` 
+    : "--";
 
   // opportunity banner
   opportunityBanner.className = "opportunity";
   if (analytics.competition_density === "high") opportunityBanner.classList.add("high");
   else if (analytics.competition_density === "medium") opportunityBanner.classList.add("medium");
   opportunityBanner.querySelector("strong").textContent = `${analytics.underserved_price_band} tier is underserved`;
-  opportunityBanner.querySelector("span").textContent = analytics.common_complaints;
+  opportunityBanner.querySelector("span").textContent = summarizeComplaints(businesses, analytics.common_complaints);
 
   // business cards
   cardTrack.innerHTML = businesses.map(b => {
     const complaints = parseComplaints(b.top_complaints);
-    const sentiment = b.sentiment_score || 0;
-    const sentimentWidth = Math.round(Math.max(0, sentiment) * 100);
-    const sentimentColor = sentiment < 0 ? "#9f5648" : "var(--mid-green)";
+    const sentiment = (b.sentiment_score != null && complaints.length) ? b.sentiment_score : null;
 
     return `
       <article class="business-card">
@@ -1201,20 +1241,32 @@ function renderReport(report) {
           <p class="detail"><i class="ti ti-map-pin"></i><span>${b.address || "Address unavailable"}</span></p>
           <p class="detail"><i class="ti ti-phone"></i><span>${b.phone || "Phone unavailable"}</span></p>
           <ul class="complaints">
-            ${complaints.length ? complaints.map(c => `<li>${c}</li>`).join("") : "<li>No complaints data</li>"}
+            ${complaints.length 
+              ? complaints.map(c => `<li><button class="complaint-toggle" type="button">${escapeHTML(c)}</button></li>`).join("") 
+              : '<li><span class="complaint-toggle">No complaints data</span></li>'}
           </ul>
         </div>
         <div>
           <span class="pill">${b.price_range || "—"}</span>
-          <p class="sentiment-label" style="margin-top:10px;">Sentiment</p>
-          <div class="sentiment-bar">
-            <div class="sentiment-fill" style="width:${sentimentWidth}%; background:${sentimentColor};"></div>
-          </div>
+          <p class="sentiment-label" style="margin-top:10px;">Customer mood</p>
+          ${sentiment === null 
+            ? '<span style="color:var(--muted);font-size:0.85rem;">No data</span>'
+            : `<span style="display:inline-flex;align-items:center;gap:6px;font-size:0.9rem;font-weight:800;">
+                <span style="width:10px;height:10px;border-radius:50%;background:${sentiment >= 0.2 ? '#636B2F' : sentiment >= 0 ? '#9b7a35' : '#9f5648'};display:inline-block;"></span>
+                ${sentiment >= 0.2 ? 'Positive' : sentiment >= 0 ? 'Mixed' : 'Negative'}
+              </span>`
+          }
         </div>
       </article>
     `;
   }).join("");
 }
+
+cardTrack.addEventListener("click", (event) => {
+  const complaint = event.target.closest(".complaint-toggle");
+  if (!complaint || complaint.tagName !== "BUTTON") return;
+  complaint.classList.toggle("is-expanded");
+});
 
 function renderError(err) {
   metricValues.forEach((value) => {
@@ -1257,6 +1309,45 @@ function parseComplaints(value) {
   } catch {
     return [];
   }
+}
+
+function summarizeComplaints(businesses, fallback) {
+  const themes = [
+    { label: "waiting time", words: ["wait", "waiting", "delay", "late", "slow"] },
+    { label: "staff behavior", words: ["rude", "staff", "management", "unprofessional", "behave"] },
+    { label: "pricing", words: ["expensive", "costly", "overpriced", "cheap", "billing", "charged"] },
+    { label: "cleanliness", words: ["dirty", "clean", "hygiene", "smell"] },
+    { label: "service quality", words: ["bad", "poor", "worst", "disappoint", "issue", "problem"] },
+  ];
+  const counts = new Map(themes.map(theme => [theme.label, 0]));
+
+  businesses.flatMap(b => parseComplaints(b.top_complaints)).forEach((complaint) => {
+    const text = String(complaint).toLowerCase();
+    themes.forEach((theme) => {
+      if (theme.words.some(word => text.includes(word))) {
+        counts.set(theme.label, counts.get(theme.label) + 1);
+      }
+    });
+  });
+
+  const summary = [...counts.entries()]
+    .filter(([, count]) => count > 0)
+    .sort((a, b) => b[1] - a[1])
+    .slice(0, 3)
+    .map(([label]) => label);
+
+  if (summary.length) return `Mixed complaints: ${summary.join(", ")}`;
+  return fallback || "No complaint themes found";
+}
+
+function escapeHTML(value) {
+  return String(value).replace(/[&<>"']/g, (char) => ({
+    "&": "&amp;",
+    "<": "&lt;",
+    ">": "&gt;",
+    '"': "&quot;",
+    "'": "&#39;",
+  }[char]));
 }
 </script>
 </body>
