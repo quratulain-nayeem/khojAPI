@@ -15,9 +15,6 @@ Open track. A founder looking to open a business in a specific locality has no w
 ## 2. Live Demo
 https://huggingface.co/spaces/quratulainnnnn/khojAPI
 
-## 3. Demo Video
-https://drive.google.com/file/d/1SxpilaG45bBX31HWkUnEJoPpsc6nisYY/view?usp=sharing
-
 ## 4. Tech Stack
 - **Backend:** FastAPI, Python 3.11, SQLite, SQLAlchemy
 - **Agent layer:** Groq API, LLaMA 3.3 70B, Pydantic v2
