@@ -1157,7 +1157,7 @@ form.addEventListener("submit", async (event) => {
   setLoading(true);
 
   try {
-    const res = await fetch(`${API_BASE}/analyze`, {
+    const res = await fetchWithTimeout(`${API_BASE}/analyze`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ city, locality, category })
@@ -1184,22 +1184,37 @@ form.addEventListener("submit", async (event) => {
   }
 });
 
+async function fetchWithTimeout(url, options = {}) {
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), 30000);
+  try {
+    return await fetch(url, { ...options, signal: controller.signal });
+  } catch (err) {
+    if (err.name === "AbortError") throw new Error("The server took too long to respond. Please try again shortly.");
+    throw err;
+  } finally {
+    clearTimeout(timer);
+  }
+}
+
 async function pollStatus(job_id) {
-  while (true) {
+  const deadline = Date.now() + 15 * 60 * 1000;
+  while (Date.now() < deadline) {
     await wait(2000);
-    const res = await fetch(`${API_BASE}/status/${job_id}`);
+    const res = await fetchWithTimeout(`${API_BASE}/status/${job_id}`);
     if (!res.ok) {
       throw new Error(`Status request failed: ${res.status}`);
     }
 
-    const { status } = await res.json();
+    const { status, error } = await res.json();
     if (status === "complete") return;
-    if (status === "failed") throw new Error("Job failed");
+    if (status === "failed") throw new Error(error || "Job failed");
   }
+  throw new Error("This analysis is taking too long. It may still finish on the server; try again later.");
 }
 
 async function fetchReport(job_id) {
-  const res = await fetch(`${API_BASE}/report/${job_id}`);
+  const res = await fetchWithTimeout(`${API_BASE}/report/${job_id}`);
   if (!res.ok) {
     throw new Error(`Report request failed: ${res.status}`);
   }
@@ -1210,6 +1225,16 @@ async function fetchReport(job_id) {
 function renderReport(report) {
   const businesses = report.businesses || [];
   const analytics = report.analytics || {};
+
+  if (!businesses.length) {
+    metricValues.forEach(value => { value.textContent = "--"; });
+    metricValues[0].textContent = "0";
+    opportunityBanner.className = "opportunity";
+    opportunityBanner.querySelector("strong").textContent = "No matching businesses found";
+    opportunityBanner.querySelector("span").textContent = "Try another locality or category. There is not enough data to assess competition.";
+    cardTrack.innerHTML = "";
+    return;
+  }
 
   // metrics
   metricValues[0].textContent = analytics.total_businesses;

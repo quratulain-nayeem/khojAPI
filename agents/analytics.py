@@ -43,6 +43,14 @@ def get_common_complaints(businesses: list[dict]) -> str:
     return ", ".join(top)
 
 def run_analytics(businesses: list[dict]) -> dict:
+    if not businesses:
+        return {
+            "total_businesses": 0,
+            "avg_rating": 0.0,
+            "competition_density": "unknown",
+            "underserved_price_band": None,
+            "common_complaints": "No business data available for analysis.",
+        }
     ratings = [b.get("rating") for b in businesses if b.get("rating")]
     avg_rating = round(sum(ratings) / len(ratings), 2) if ratings else 0.0
 

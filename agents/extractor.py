@@ -2,9 +2,32 @@ import json
 import re
 import uuid
 from groq import Groq
+from pydantic import BaseModel
+from typing import Optional, Literal
 from core.config import settings
 
-client = Groq(api_key=settings.groq_api_key)
+client = Groq(api_key=settings.groq_api_key, timeout=20.0, max_retries=0)
+
+class ExtractedBusiness(BaseModel):
+    name: str
+    rating: Optional[float]
+    review_count: Optional[int]
+    price_range: Literal["budget", "mid-range", "premium"]
+    phone: Optional[str]
+    address: Optional[str]
+    top_complaints: list[str]
+    tags: list[str]
+
+def extraction_format():
+    schema = ExtractedBusiness.schema()
+    # Pydantic v1 omits null from Optional schemas; make it explicit for Groq.
+    for field in ("rating", "review_count", "phone", "address"):
+        schema["properties"][field]["type"] = [schema["properties"][field]["type"], "null"]
+    schema["required"] = list(schema["properties"])
+    schema["additionalProperties"] = False
+    return {"type": "json_schema", "json_schema": {
+        "name": "business", "strict": True, "schema": schema,
+    }}
 
 PRICE_RANGES = {"budget", "mid-range", "premium"}
 COMPLAINT_KEYWORDS = (
@@ -79,17 +102,22 @@ def extract_business(raw: dict) -> dict:
     raw_str = json.dumps(raw)
     try:
         response = client.chat.completions.create(
-            model="llama-3.3-70b-versatile",
+            model="openai/gpt-oss-120b",
+            response_format=extraction_format(),
+            reasoning_effort="low",
+            max_completion_tokens=4096,
             temperature=0,
             messages=[
                 {"role": "system", "content": SYSTEM_PROMPT},
                 {"role": "user", "content": USER_PROMPT.format(raw_business=raw_str)},
             ],
         )
-        cleaned = response.choices[0].message.content.strip()
-        return json.loads(cleaned)
+        if response.choices[0].finish_reason != "stop":
+            raise ValueError("Model output was incomplete")
+        cleaned = response.choices[0].message.content or ""
+        return ExtractedBusiness.parse_raw(cleaned).dict()
     except Exception as exc:
-        print(f"EXTRACTOR FALLBACK: {exc}")
+        print(f"EXTRACTOR FALLBACK: {type(exc).__name__}; using original listing data")
         return {
             "name": raw.get("name"),
             "rating": raw.get("rating"),

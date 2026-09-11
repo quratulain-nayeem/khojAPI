@@ -1,19 +1,18 @@
-import asyncio
 import uuid
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException
 from sqlalchemy.orm import Session
 from db.database import get_db, SessionLocal
-from db.models import Job, Business
+from db.models import Job, JobError, Business
 from api.schemas import AnalyzeRequest, JobResponse, ReportResponse, BusinessOut, AnalyticsOut
 from core.job_queue import create_job, update_job_status, get_job
-from agents.crawler import crawl
+from agents.crawler import crawl, PlacesError
 from agents.extractor import extract_all
 from agents.analytics import run_analytics
 import json
 
 router = APIRouter()
 
-async def run_pipeline(job_id: str, city: str, category: str, locality: str):
+def run_pipeline(job_id: str, city: str, category: str, locality: str):
     db = SessionLocal()
     try:
         update_job_status(job_id, "processing", db)
@@ -44,16 +43,19 @@ async def run_pipeline(job_id: str, city: str, category: str, locality: str):
         db.commit()
         update_job_status(job_id, "complete", db)
     except Exception as e:
-        print(f"PIPELINE ERROR: {e}")
+        db.rollback()
+        message = str(e) if isinstance(e, PlacesError) else "Analysis failed while processing business data. Please try again."
+        print(f"PIPELINE ERROR [{type(e).__name__}]: {message}")
+        db.merge(JobError(job_id=job_id, message=message))
         update_job_status(job_id, "failed", db)
     finally:
         db.close()
 
 @router.post("/analyze", response_model=JobResponse)
-async def analyze(request: AnalyzeRequest, db: Session = Depends(get_db)):
+def analyze(request: AnalyzeRequest, background_tasks: BackgroundTasks, db: Session = Depends(get_db)):
     job_id = create_job(request.city, request.category, db)
     job = get_job(job_id, db)
-    asyncio.create_task(run_pipeline(job_id, request.city, request.category, request.locality))
+    background_tasks.add_task(run_pipeline, job_id, request.city, request.category, request.locality)
     return JobResponse(
         job_id=job_id,
         status=job.status,
@@ -63,14 +65,15 @@ async def analyze(request: AnalyzeRequest, db: Session = Depends(get_db)):
     )
 
 @router.get("/status/{job_id}")
-async def status(job_id: str, db: Session = Depends(get_db)):
+def status(job_id: str, db: Session = Depends(get_db)):
     job = get_job(job_id, db)
     if not job:
         raise HTTPException(status_code=404, detail="Job not found")
-    return {"job_id": job_id, "status": job.status}
+    error = db.query(JobError).filter(JobError.job_id == job_id).first()
+    return {"job_id": job_id, "status": job.status, "error": error.message if error else None}
 
 @router.get("/report/{job_id}", response_model=ReportResponse)
-async def report(job_id: str, db: Session = Depends(get_db)):
+def report(job_id: str, db: Session = Depends(get_db)):
     job = get_job(job_id, db)
     if not job:
         raise HTTPException(status_code=404, detail="Job not found")

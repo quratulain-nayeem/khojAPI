@@ -12,6 +12,12 @@ class Job(Base):
     created_at = Column(DateTime, default=datetime.datetime.utcnow)
     completed_at = Column(DateTime, nullable=True)
 
+class JobError(Base):
+    __tablename__ = "job_errors"
+
+    job_id = Column(String, primary_key=True)
+    message = Column(Text, nullable=False)
+
 class Business(Base):
     __tablename__ = "businesses"
 
