@@ -1,4 +1,4 @@
-﻿import asyncio
+import asyncio
 import json
 import os
 import tempfile
@@ -25,27 +25,73 @@ from main import app
 class CrawlerTests(unittest.TestCase):
     def test_google_denial_is_not_empty_success(self):
         response = Mock()
-        response.json.return_value = {'status': 'REQUEST_DENIED', 'error_message': 'private details'}
-        with patch.object(crawler.requests, 'get', return_value=response) as get:
-            with self.assertRaisesRegex(crawler.PlacesError, 'REQUEST_DENIED') as error:
+        response.ok = False
+        response.status_code = 403
+        response.json.return_value = {'error': {'status': 'PERMISSION_DENIED', 'message': 'private details'}}
+        with patch.object(crawler.requests, 'request', return_value=response) as get:
+            with self.assertRaisesRegex(crawler.PlacesError, 'PERMISSION_DENIED') as error:
                 crawler.crawl('Hyderabad', 'cafes', 'Banjara Hills')
             self.assertNotIn('private details', str(error.exception))
             self.assertEqual(get.call_args.kwargs['timeout'], (5, 20))
 
     def test_true_zero_results_is_empty(self):
         response = Mock()
-        response.json.return_value = {'status': 'ZERO_RESULTS', 'results': []}
-        with patch.object(crawler.requests, 'get', return_value=response):
+        response.ok = True
+        response.json.return_value = {}
+        with patch.object(crawler.requests, 'request', return_value=response):
             self.assertEqual(crawler.crawl('City', 'cafes', 'Locality'), [])
         analytics = run_analytics([])
         self.assertEqual(analytics['competition_density'], 'unknown')
         self.assertIsNone(analytics['underserved_price_band'])
 
     def test_network_failure_does_not_expose_key(self):
-        with patch.object(crawler.requests, 'get', side_effect=requests.Timeout('url?key=secret')):
+        with patch.object(crawler.requests, 'request', side_effect=requests.Timeout('url?key=secret')):
             with self.assertRaises(crawler.PlacesError) as error:
                 crawler.crawl('City', 'cafes', 'Locality')
             self.assertNotIn('secret', str(error.exception))
+
+    def test_new_api_search_and_detail_mapping(self):
+        search = Mock(ok=True, status_code=200)
+        search.json.return_value = {'places': [{
+            'id': 'place-123', 'displayName': {'text': 'Test Gym'},
+            'rating': 4.5, 'userRatingCount': 100,
+            'formattedAddress': 'Tolichowki, Hyderabad',
+            'priceLevel': 'PRICE_LEVEL_MODERATE',
+        }]}
+        details = Mock(ok=True, status_code=200)
+        details.json.return_value = {'nationalPhoneNumber': '040 1234', 'reviews': [
+            {'text': {'text': 'Good trainers'}},
+            {'originalText': {'text': 'Crowded evenings'}},
+        ]}
+        with patch.object(crawler.requests, 'request', side_effect=[search, details]) as request, patch.object(crawler.time, 'sleep'):
+            result = crawler.crawl('Hyderabad', 'gym', 'Tolichowki')
+        self.assertEqual(result[0]['name'], 'Test Gym')
+        self.assertEqual(result[0]['price_range'], 'mid-range')
+        self.assertEqual(result[0]['review_count'], 100)
+        self.assertEqual(result[0]['reviews'], ['Good trainers', 'Crowded evenings'])
+        search_call, details_call = request.call_args_list
+        self.assertEqual(search_call.args, ('POST', 'https://places.googleapis.com/v1/places:searchText'))
+        self.assertEqual(search_call.kwargs['json']['textQuery'], 'gym in Tolichowki, Hyderabad')
+        self.assertEqual(search_call.kwargs['headers']['X-Goog-Api-Key'], 'test-only')
+        self.assertNotIn('*', search_call.kwargs['headers']['X-Goog-FieldMask'])
+        self.assertEqual(details_call.args, ('GET', 'https://places.googleapis.com/v1/places/place-123'))
+        self.assertEqual(details_call.kwargs['headers']['X-Goog-FieldMask'], 'nationalPhoneNumber,reviews')
+
+    def test_billing_error_explains_required_action(self):
+        response = Mock(ok=False, status_code=403)
+        response.json.return_value = {'error': {'status': 'PERMISSION_DENIED', 'details': [{'reason': 'BILLING_DISABLED'}]}}
+        with patch.object(crawler.requests, 'request', return_value=response):
+            with self.assertRaisesRegex(crawler.PlacesError, 'Enable billing'):
+                crawler.crawl('City', 'gym', 'Area')
+
+    def test_details_denial_does_not_become_empty_reviews(self):
+        search = Mock(ok=True, status_code=200)
+        search.json.return_value = {'places': [{'id': 'place-123'}]}
+        details = Mock(ok=False, status_code=403)
+        details.json.return_value = {'error': {'status': 'PERMISSION_DENIED', 'details': [{'reason': 'API_KEY_SERVICE_BLOCKED'}]}}
+        with patch.object(crawler.requests, 'request', side_effect=[search, details]):
+            with self.assertRaisesRegex(crawler.PlacesError, 'restrictions must allow Places API'):
+                crawler.crawl('City', 'gym', 'Area')
 
 class ExtractorTests(unittest.TestCase):
     def test_structured_response_and_nullable_fields(self):
